@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR con GPS y Guardado en KML</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+        #video { width: 100%; height: auto; }
+        button { margin: 10px; padding: 10px; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+    <h2>OCR con GPS y Guardado en KML</h2>
+    <video id="video" autoplay playsinline></video>
+    <button onclick="captureImage()">Capturar Imagen</button>
+    <canvas id="canvas" style="display:none;"></canvas>
+    
+    <p><strong>Nombre del Registro:</strong></p>
+    <input type="text" id="recordName" placeholder="Ingrese un nombre">
+    
+    <p><strong>Texto extraído:</strong></p>
+    <textarea id="output" rows="5" cols="40"></textarea>
+    
+    <p><strong>Fecha y Hora del Sistema:</strong></p>
+    <textarea id="timestamp" rows="1" cols="40" readonly></textarea>
+    
+    <p><strong>Coordenadas GPS:</strong></p>
+    <textarea id="gps" rows="2" cols="40" readonly></textarea>
+
+    <button onclick="saveKML()">Guardar en KML</button>
+
+    <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const output = document.getElementById("output");
+        const timestampField = document.getElementById("timestamp");
+        const gpsField = document.getElementById("gps");
+        const recordNameField = document.getElementById("recordName");
+
+        let gpsCoordinates = "No disponible";
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+            } catch (err) {
+                alert("Error al acceder a la cámara: " + err.message);
+            }
+        }
+
+        function captureImage() {
+            const context = canvas.getContext("2d");
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Obtener la fecha y hora del sistema
+            const now = new Date();
+            const timestamp = now.toLocaleString();
+            timestampField.value = timestamp;
+
+            // Convertir la imagen a URL y procesar OCR
+            const imageSrc = canvas.toDataURL("image/png");
+            recognizeText(imageSrc);
+        }
+
+        function recognizeText(imageSrc) {
+            output.value = "Procesando...";
+            Tesseract.recognize(imageSrc, 'spa', {
+                tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+                logger: m => console.log(m)
+            }).then(({ data }) => {
+                output.value = data.text.trim();
+            }).catch(err => {
+                output.value = "Error en OCR";
+                console.error(err);
+            });
+        }
+
+        function getGPSLocation() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    gpsCoordinates = `${position.coords.longitude},${position.coords.latitude},0`;
+                    gpsField.value = `Lat: ${position.coords.latitude}, Lon: ${position.coords.longitude}`;
+                }, error => {
+                    gpsCoordinates = "No disponible";
+                    gpsField.value = gpsCoordinates;
+                });
+            } else {
+                gpsCoordinates = "No disponible";
+                gpsField.value = gpsCoordinates;
+            }
+        }
+
+        function saveKML() {
+            const text = output.value;
+            const timestamp = timestampField.value;
+            const gps = gpsCoordinates;
+            const recordName = recordNameField.value.trim() || "Registro_OCR";
+
+            if (gps === "No disponible") {
+                alert("No se pudo obtener la ubicación GPS.");
+                return;
+            }
+
+            const kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${recordName}</name>
+    <Placemark>
+      <name>${recordName}</name>
+      <description><![CDATA[
+        <b>Texto Reconocido:</b> ${text}<br/>
+        <b>Fecha y Hora:</b> ${timestamp}<br/>
+      ]]></description>
+      <Point>
+        <coordinates>${gps}</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>`;
+
+            const blob = new Blob([kmlContent], { type: "application/vnd.google-earth.kml+xml" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `${recordName}.kml`;
+            link.click();
+        }
+
+        // Iniciar la cámara y obtener GPS al cargar
+        startCamera();
+        getGPSLocation();
+    </script>
+
+</body>
+</html>
